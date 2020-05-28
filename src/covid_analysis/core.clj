@@ -298,7 +298,11 @@
         nil-counties (count (filter #(zero? (last %)) trajectories))
         marginal-counties (count (filter #(and (pos? (last %)) (<= (last %) 5)) trajectories))
         scary-counties (count (filter #(> (last %) 10) trajectories))]
-    [down-counties up-counties nil-counties marginal-counties scary-counties]))
+    {:down-counties down-counties
+     :up-counties up-counties
+     :nil-counties nil-counties
+     :marginal-counties marginal-counties
+     :scary-counties scary-counties}))
 
 (defn rank-counties-for-days [us-confirmed days]
   (loop [us-confirmed us-confirmed ranks [] days days]
@@ -318,11 +322,8 @@
   (println "Cook Confirmed:" (get-stats (get-row us-confirmed-data "Cook, Illinois, US")))
 
   (println "\ncounty distribution")
-  (doseq [[down-counties
-           up-counties
-           nil-counties
-           marginal-counties
-           scary-counties] (rank-counties-for-days (rest us-confirmed-data) 2)]
+  (doseq [{:keys [down-counties up-counties nil-counties marginal-counties scary-counties]}
+          (rank-counties-for-days (rest us-confirmed-data) 2)]
     (println "down:" down-counties ", up:" up-counties ", nil:" nil-counties ", marginal:" marginal-counties ", scary:" scary-counties)
     )
 
