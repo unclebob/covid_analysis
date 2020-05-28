@@ -263,7 +263,11 @@
                              case-per-100K (* 100000.0 (/ cases population))
                              trajectory (reduce + changes-per-day)
                              trajectory (/ (double trajectory) 14)]
-                         [state (last new-cases) case-per-100K changes-per-day trajectory]))]
+                         {:state state
+                          :new-cases (last new-cases)
+                          :cases-per-100K case-per-100K
+                          :changes-per-day changes-per-day
+                          :trajectory trajectory}))]
     (sort-by last trajectories)))
 
 (defn get-county-trajectories [us-confirmed]
@@ -303,7 +307,7 @@
       (recur (map butlast us-confirmed) (conj ranks (rank-counties us-confirmed)) (dec days)))))
 
 (defn -main
-  [& args]
+  [& _]
   (println (get-last global-confirmed-data "Province/State"))
   (println "US-Confirmed:  " (get-stats (get-row global-confirmed-data "US")))
   (println "US-Deaths:     " (get-stats (get-row global-deaths-data "US")))
@@ -315,10 +319,10 @@
 
   (println "\ncounty distribution")
   (doseq [[down-counties
-         up-counties
-         nil-counties
-         marginal-counties
-         scary-counties] (rank-counties-for-days (rest us-confirmed-data) 2)]
+           up-counties
+           nil-counties
+           marginal-counties
+           scary-counties] (rank-counties-for-days (rest us-confirmed-data) 2)]
     (println "down:" down-counties ", up:" up-counties ", nil:" nil-counties ", marginal:" marginal-counties ", scary:" scary-counties)
     )
 
@@ -330,11 +334,11 @@
     (println county))
 
   (println "\nState Case Trajectories")
-  (doseq [[state new-cases cases-per-100K days-of-change trajectory] (get-state-case-trajectories)]
+  (doseq [{:keys [state new-cases cases-per-100K days-of-change trajectory]} (get-state-case-trajectories)]
     (println state (format "{%d, %.2f}" new-cases cases-per-100K) days-of-change (format "<%.2f>" trajectory)))
 
   (println "\nState Cases per 100K")
-  (doseq [[state new-cases cases-per-100K] (sort-by #(nth % 2) (get-state-case-trajectories))]
+  (doseq [{:keys [state new-cases cases-per-100K]} (sort-by :cases-per-100K (get-state-case-trajectories))]
     (printf "%s {%d, %.2f}\n" state new-cases cases-per-100K))
 
   (println "\nHigh Trajectory counties")
@@ -347,8 +351,7 @@
 
   (println "\nState Case Mortality Rates")
   (doseq [[state deaths cases mortality] (get-state-mortality-rates)]
-    (let [pop (state-population state)]
-      (printf "%s %.2f (%d/%d)\n" state mortality deaths cases)))
+    (printf "%s %.2f (%d/%d)\n" state mortality deaths cases))
 
   (println "\nState Deaths per 100K")
   (doseq [[state death-per-pop] (get-state-deaths-per-population)]
