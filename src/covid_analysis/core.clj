@@ -263,7 +263,7 @@
                              case-per-100K (* 100000.0 (/ cases population))
                              trajectory (reduce + changes-per-day)
                              trajectory (/ (double trajectory) 14)]
-                         [state case-per-100K changes-per-day trajectory]))]
+                         [state (last new-cases) case-per-100K changes-per-day trajectory]))]
     (sort-by last trajectories)))
 
 (defn get-county-trajectories [us-confirmed]
@@ -330,12 +330,12 @@
     (println county))
 
   (println "\nState Case Trajectories")
-  (doseq [[state cases-per-100K days-of-change trajectory] (get-state-case-trajectories)]
-    (println state (format "{%.2f}" cases-per-100K) days-of-change (format "<%.2f>" trajectory)))
+  (doseq [[state new-cases cases-per-100K days-of-change trajectory] (get-state-case-trajectories)]
+    (println state (format "{%d, %.2f}" new-cases cases-per-100K) days-of-change (format "<%.2f>" trajectory)))
 
   (println "\nState Cases per 100K")
-  (doseq [[state cases-per-100K] (sort-by second (get-state-case-trajectories))]
-    (printf "%s {%.2f}\n" state cases-per-100K))
+  (doseq [[state new-cases cases-per-100K] (sort-by #(nth % 2) (get-state-case-trajectories))]
+    (printf "%s {%d, %.2f}\n" state new-cases cases-per-100K))
 
   (println "\nHigh Trajectory counties")
   (doseq [[county trajectory] (take-last 10 (get-county-trajectories (rest us-confirmed-data)))]
@@ -360,6 +360,10 @@
   (println (county-trajectory "Kenosha, Wisconsin, US"))
   (println (county-trajectory "McHenry, Illinois, US"))
   (println (county-trajectory "Juneau, Wisconsin, US"))
+  (println (county-trajectory "Sauk, Wisconsin, US"))
+  (println (county-trajectory "Columbia, Wisconsin, US"))
   (println (county-trajectory "East Baton Rouge, Louisiana, US"))
+  (println (county-trajectory "West Baton Rouge, Louisiana, US"))
+  (println (county-trajectory "Maricopa, Arizona, US"))
   (println (county-trajectory "Spokane, Washington, US"))
   )
