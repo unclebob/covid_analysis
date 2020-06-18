@@ -71,6 +71,21 @@
    "Wyoming" 578759
    })
 
+(defn to-int [s]
+  (if (str/blank? s) 0 (int (Double/parseDouble s))))
+
+(defn to-ints [row]
+  (map to-int row))
+
+(defn square [n] (* n n))
+
+(defn mean [a] (/ (reduce + a) (count a)))
+
+(defn stddev [a]
+  (Math/sqrt (/
+               (reduce + (map square (map - a (repeat (mean a)))))
+               (- (count a) 1))))
+
 (defn get-csv-filenames [dir]
   (filter #(.endsWith % ".csv")
           (map str
@@ -81,16 +96,34 @@
   (let [filenames (map #(last (str/split % #"/")) csv-filenames)]
     (map #(first (str/split % #"\.")) filenames)))
 
-(defn to-int [s]
-  (if (str/blank? s) 0 (int (Double/parseDouble s))))
+(defn date-string-to-date [date-string]
+  (let [[month day year] (str/split date-string #"-")]
+    (to-int (str year month day))))
 
-(defn to-ints [row]
-  (map to-int row))
+(defn get-filename-of-last-dated-us-report []
+  (let [files (get-csv-filenames us-daily-reports-directory)
+        date-strings (get-csv-dates files)
+        dates (map date-string-to-date date-strings)
+        dated-filenames (map #(vector %1 %2) dates files)]
+    (last (last (sort-by first dated-filenames)))))
 
 (defn get-rows [file]
   (with-open [reader (io/reader file)]
     (doall
       (csv/read-csv reader))))
+
+(defn state-test-positive-rate [state-row]
+  (let [state (first state-row)
+        tests (to-int (nth state-row 11))
+        cases (to-int (nth state-row 5))
+        rate (if (zero? tests) 0.0 (double (/ cases tests)))]
+    [state rate]))
+
+(defn get-test-positive-rate-by-state []
+  (let [last-report-filename (get-filename-of-last-dated-us-report)
+        last-report-rows (rest (get-rows last-report-filename))
+        state-test-positive-rates (map state-test-positive-rate last-report-rows)]
+    (sort-by last state-test-positive-rates)))
 
 (def us-confirmed-data (get-rows us-confirmed-file))
 (def us-deaths-data (get-rows us-deaths-file))
@@ -262,13 +295,15 @@
                              cases (last state-total)
                              case-per-100K (* 100000.0 (/ cases population))
                              trajectory (reduce + changes-per-day)
-                             trajectory (/ (double trajectory) 14)]
+                             trajectory (/ (double trajectory) 14)
+                             trajectory-per-100K (* 100000.0 (/ trajectory population))]
                          {:state state
                           :new-cases (last new-cases)
                           :cases-per-100K case-per-100K
                           :changes-per-day changes-per-day
-                          :trajectory trajectory}))]
-    (sort-by last trajectories)))
+                          :trajectory trajectory
+                          :trajectory-per-100K trajectory-per-100K}))]
+    (sort-by :trajectory trajectories)))
 
 (defn get-county-trajectories [us-confirmed]
   (let [state-map (gather-states us-confirmed)
@@ -293,15 +328,18 @@
 
 (defn rank-counties [us-confirmed]
   (let [trajectories (get-county-trajectories us-confirmed)
+        total-counties (count trajectories)
         down-counties (count (filter #(neg? (last %)) trajectories))
-        up-counties (- (count trajectories) down-counties)
+        up-counties (- total-counties down-counties)
         nil-counties (count (filter #(zero? (last %)) trajectories))
         marginal-counties (count (filter #(and (pos? (last %)) (<= (last %) 5)) trajectories))
-        scary-counties (count (filter #(> (last %) 10) trajectories))]
+        scary-counties (count (filter #(> (last %) 10) trajectories))
+        moderate-counties (- up-counties nil-counties marginal-counties scary-counties)]
     {:down-counties down-counties
      :up-counties up-counties
      :nil-counties nil-counties
      :marginal-counties marginal-counties
+     :moderate-counties moderate-counties
      :scary-counties scary-counties}))
 
 (defn rank-counties-for-days [us-confirmed days]
@@ -322,9 +360,14 @@
   (println "Cook Confirmed:" (get-stats (get-row us-confirmed-data "Cook, Illinois, US")))
 
   (println "\ncounty distribution")
-  (doseq [{:keys [down-counties up-counties nil-counties marginal-counties scary-counties]}
+  (doseq [{:keys [down-counties up-counties nil-counties marginal-counties scary-counties moderate-counties]}
           (rank-counties-for-days (rest us-confirmed-data) 2)]
-    (println "down:" down-counties ", up:" up-counties ", nil:" nil-counties ", marginal:" marginal-counties ", scary:" scary-counties)
+    (println "down:" down-counties
+             ", up:" up-counties
+             ", zero:" nil-counties
+             ", <5:" marginal-counties
+             ", 6-10:" moderate-counties
+             ", >10:" scary-counties)
     )
 
   (println "\nCurrent Confirmed US")
@@ -334,12 +377,23 @@
   (doseq [county (get-hot-counties)]
     (println county))
 
+  (def state-trajectories (get-state-case-trajectories))
+
   (println "\nState Case Trajectories")
-  (doseq [{:keys [state new-cases cases-per-100K days-of-change trajectory]} (get-state-case-trajectories)]
-    (println state (format "{%d, %.2f}" new-cases cases-per-100K) days-of-change (format "<%.2f>" trajectory)))
+  (doseq [{:keys [state new-cases cases-per-100K changes-per-day trajectory]} state-trajectories]
+    (println state (format "{%d, %.2f}" new-cases cases-per-100K) changes-per-day (format "<%.2f>" trajectory)))
+
+  (println "\nState Trajectories/100K stats")
+  (def t-100K (map :trajectory-per-100K state-trajectories))
+  (printf "mean: %.5f\n" (mean t-100K))
+  (printf "sigma: %.5f\n" (stddev t-100K))
+
+  (println "\nState Trajectories/100K")
+  (doseq [{:keys [state trajectory-per-100K]} (sort-by :trajectory-per-100K state-trajectories)]
+    (printf "%s %.2f\n" state trajectory-per-100K))
 
   (println "\nState Cases per 100K")
-  (doseq [{:keys [state new-cases cases-per-100K]} (sort-by :cases-per-100K (get-state-case-trajectories))]
+  (doseq [{:keys [state new-cases cases-per-100K]} (sort-by :cases-per-100K state-trajectories)]
     (printf "%s {%d, %.2f}\n" state new-cases cases-per-100K))
 
   (println "\nHigh Trajectory counties")
@@ -358,6 +412,10 @@
   (doseq [[state death-per-pop] (get-state-deaths-per-population)]
     (printf "%s %.2f\n" state (* 100000.0 death-per-pop)))
 
+  (println "\nTest Positive Rate by State")
+  (doseq [[state rate] (get-test-positive-rate-by-state)]
+    (printf "%s %.4f\n" state rate))
+
   (println "\nInteresting Counties")
   (println (county-trajectory "Lake, Illinois, US"))
   (println (county-trajectory "Cook, Illinois, US"))
@@ -369,5 +427,5 @@
   (println (county-trajectory "East Baton Rouge, Louisiana, US"))
   (println (county-trajectory "West Baton Rouge, Louisiana, US"))
   (println (county-trajectory "Maricopa, Arizona, US"))
-  (println (county-trajectory "Spokane, Washington, US"))
+  (println (county-trajectory "Travis, Texas, US"))
   )
