@@ -1,7 +1,8 @@
 (ns covid-analysis.core
   (:require [clojure.data.csv :as csv]
             [clojure.java.io :as io]
-            [clojure.string :as str]))
+            [clojure.string :as str]
+            [clojure.set :as set]))
 
 (def graph-width 100)
 (def global-confirmed-file "../COVID-19/csse_covid_19_data/csse_covid_19_time_series/time_series_covid19_confirmed_global.csv")
@@ -86,6 +87,11 @@
                (reduce + (map square (map - a (repeat (mean a)))))
                (- (count a) 1))))
 
+(defn get-rows [file]
+  (with-open [reader (io/reader file)]
+    (doall
+      (csv/read-csv reader))))
+
 (defn get-csv-filenames [dir]
   (filter #(.endsWith % ".csv")
           (map str
@@ -100,17 +106,87 @@
   (let [[month day year] (str/split date-string #"-")]
     (to-int (str year month day))))
 
-(defn get-filename-of-last-dated-us-report []
+(defn get-us-report-filenames-in-chronological-order []
   (let [files (get-csv-filenames us-daily-reports-directory)
         date-strings (get-csv-dates files)
         dates (map date-string-to-date date-strings)
-        dated-filenames (map #(vector %1 %2) dates files)]
-    (last (last (sort-by first dated-filenames)))))
+        dated-filenames (map #(vector %1 %2) dates files)
+        sorted-dated-filenames (sort-by first dated-filenames)]
+    (map last sorted-dated-filenames)))
 
-(defn get-rows [file]
-  (with-open [reader (io/reader file)]
-    (doall
-      (csv/read-csv reader))))
+(defn get-filename-of-last-us-report []
+  (last (get-us-report-filenames-in-chronological-order)))
+
+(defn unpack-state-report [row]
+  (let [state (nth row 0)
+        confirmed (to-int (nth row 5))
+        deaths (to-int (nth row 6))
+        recovered (to-int (nth row 7))
+        active (to-int (nth row 8))
+        tested (to-int (nth row 11))
+        hospitalized (to-int (nth row 12))
+        state-report {:state state
+                      :confirmed confirmed
+                      :deaths deaths
+                      :recovered recovered
+                      :active active
+                      :tested tested
+                      :hospitalized hospitalized}]
+    state-report
+    ))
+
+(defn get-us-report [filename]
+  (let [rows (rest (get-rows filename))]
+    (map unpack-state-report rows)))
+
+(defn calculate-testing-statistics [state today-by-state yesterday-by-state]
+  (let [today (today-by-state state)
+        yesterday (yesterday-by-state state)
+        confirmed (- (:confirmed today) (:confirmed yesterday))
+        deaths (- (:deaths today) (:deaths yesterday))
+        tested (- (:tested today) (:tested yesterday))
+        hospitalized (- (:hospitalized today) (:hospitalized yesterday))]
+    {:state state
+     :confirmed confirmed
+     :deaths deaths
+     :tested tested
+     :hospitalized hospitalized
+     :positive-test-rate (if (zero? tested) 0 (double (/ confirmed tested)))
+     :hospitalization-rate (if (zero? confirmed) 0 (double (/ hospitalized confirmed)))}))
+
+(defn get-daily-testing-statistics-by-state []
+  (let [last-two-file-names (take-last 2 (get-us-report-filenames-in-chronological-order))
+        todays-stats (get-us-report (last last-two-file-names))
+        yesterdays-stats (get-us-report (first last-two-file-names))
+        today-by-state (into (hash-map) (map #(vector (:state %) %) todays-stats))
+        yesterday-by-state (into (hash-map) (map #(vector (:state %) %) yesterdays-stats))
+        todays-states (set (keys today-by-state))
+        yesterdays-states (set (keys yesterday-by-state))
+        states (set/intersection todays-states yesterdays-states)]
+    (map #(calculate-testing-statistics % today-by-state yesterday-by-state) states)))
+
+
+(defn add-state-to-hosp-map [hosp-map state]
+  (let [state-name (:state state)
+        hosp (:hospitalized state)
+        hosps (hosp-map state-name)
+        hosps (if (nil? hosps) [hosp] (conj hosps hosp))
+        new-hosp-map (assoc hosp-map state-name hosps)]
+    new-hosp-map))
+
+(defn add-hosp [hosp-map us-report]
+  (loop [hosp-map hosp-map states us-report]
+    (if (empty? states)
+      hosp-map
+      (recur (add-state-to-hosp-map hosp-map (first states)) (rest states)))))
+
+(defn get-state-hospitalizations [days]
+  (let [file-names (take-last days (get-us-report-filenames-in-chronological-order))
+        reports (map get-us-report file-names)]
+    (loop [hosp-map {} reports reports]
+      (if (empty? reports)
+        hosp-map
+        (recur (add-hosp hosp-map (first reports)) (rest reports))))))
 
 (defn state-test-positive-rate [state-row]
   (let [state (first state-row)
@@ -120,7 +196,7 @@
     [state rate]))
 
 (defn get-test-positive-rate-by-state []
-  (let [last-report-filename (get-filename-of-last-dated-us-report)
+  (let [last-report-filename (get-filename-of-last-us-report)
         last-report-rows (rest (get-rows last-report-filename))
         state-test-positive-rates (map state-test-positive-rate last-report-rows)]
     (sort-by last state-test-positive-rates)))
@@ -146,20 +222,29 @@
 (defn map-by-county [county-rows]
   (apply hash-map (flatten (map #(vector (nth % 10) (to-int (last %))) (rest county-rows)))))
 
-(defn map-and-total-state [county-rows]
+(defn map-and-total-state-value [county-rows value-f]
   (loop [rows (rest county-rows)
          states {}]
     (if (empty? rows)
       states
       (let [row (first rows)
             state (nth row 6)
-            count (to-int (last row))]
+            count (value-f row)]
         (recur (rest rows) (update states state #(+ count (if (nil? %) 0 %))))))))
+
+(defn map-and-total-state [county-rows]
+  (map-and-total-state-value county-rows #(to-int (last %))))
+
+(defn new-deaths [row]
+  (let [today (to-int (last row))
+        yesterday (to-int (last (butlast row)))]
+    (- today yesterday)))
 
 (def confirmed-by-county (map-by-county us-confirmed-data))
 (def deaths-by-county (map-by-county us-deaths-data))
 (def confirmed-by-state (map-and-total-state us-confirmed-data))
 (def deaths-by-state (map-and-total-state us-deaths-data))
+(def new-deaths-by-state (map-and-total-state-value us-deaths-data new-deaths))
 
 (defn get-county-mortality-rates []
   (let [qualified-confirmations (filter #(> (second %) 100) confirmed-by-county)
@@ -377,11 +462,20 @@
   (doseq [county (get-hot-counties)]
     (println county))
 
+  (println "\nStates with most new deaths")
+  (let [top-new-deaths (take-last 10 (sort-by last (map #(vector (key %) (val %)) new-deaths-by-state)))]
+    (doseq [state-new-death top-new-deaths]
+      (printf "%s %d\n" (first state-new-death) (second state-new-death))))
+
   (def state-trajectories (get-state-case-trajectories))
 
   (println "\nState Case Trajectories")
   (doseq [{:keys [state new-cases cases-per-100K changes-per-day trajectory]} state-trajectories]
     (println state (format "{%d, %.2f}" new-cases cases-per-100K) changes-per-day (format "<%.2f>" trajectory)))
+
+  (println "\nHigh Trajectory counties")
+  (doseq [[county trajectory] (take-last 10 (get-county-trajectories (rest us-confirmed-data)))]
+    (printf "%s %.2f\n" county trajectory))
 
   (println "\nState Trajectories/100K stats")
   (def t-100K (map :trajectory-per-100K state-trajectories))
@@ -396,9 +490,6 @@
   (doseq [{:keys [state new-cases cases-per-100K]} (sort-by :cases-per-100K state-trajectories)]
     (printf "%s {%d, %.2f}\n" state new-cases cases-per-100K))
 
-  (println "\nHigh Trajectory counties")
-  (doseq [[county trajectory] (take-last 10 (get-county-trajectories (rest us-confirmed-data)))]
-    (printf "%s %.2f\n" county trajectory))
 
   ;(println "\nCounty Mortality Rates")
   ;(doseq [county-rate (get-county-mortality-rates)]
@@ -416,6 +507,40 @@
   (doseq [[state rate] (get-test-positive-rate-by-state)]
     (printf "%s %.4f\n" state rate))
 
+  (def daily-testing-stats (get-daily-testing-statistics-by-state))
+
+  (println "\nDaily Test-positive Statistics")
+  (def positive-rate (map :positive-test-rate daily-testing-stats))
+  (printf "mean: %.5f\n" (mean positive-rate))
+  (printf "sigma: %.5f\n" (stddev positive-rate))
+
+  (println "\nTen states with highest daily test positive rates")
+  (let [test-positives (take-last 10 (sort-by :positive-test-rate (filter #(< (:positive-test-rate %) 1) daily-testing-stats)))]
+    (doseq [state test-positives]
+      (printf "%s %.2f\ttested: %d, pos %d, hosp: %d, hosp-rate %.4f.\n"
+              (:state state)
+              (:positive-test-rate state)
+              (:tested state)
+              (:confirmed state)
+              (:hospitalized state)
+              (:hospitalization-rate state))))
+
+  (println "\nDaily Hospitalization Statistics")
+  (def hosp-rate (map :hospitalization-rate daily-testing-stats))
+  (printf "mean: %.5f\n" (mean hosp-rate))
+  (printf "sigma: %.5f\n" (stddev hosp-rate))
+
+  (println "\nTen states with highest daily hospitalization rates")
+  (let [hospitalized (take-last 10 (sort-by :hospitalization-rate (filter #(< (:hospitalization-rate %) 1) daily-testing-stats)))]
+    (doseq [state hospitalized]
+      (printf "%s %.2f\ttested: %d, pos: %d, hosp %d.\n"
+              (:state state)
+              (:hospitalization-rate state)
+              (:tested state)
+              (:confirmed state)
+              (:hospitalized state))))
+
+
   (println "\nInteresting Counties")
   (println (county-trajectory "Lake, Illinois, US"))
   (println (county-trajectory "Cook, Illinois, US"))
@@ -428,4 +553,8 @@
   (println (county-trajectory "West Baton Rouge, Louisiana, US"))
   (println (county-trajectory "Maricopa, Arizona, US"))
   (println (county-trajectory "Travis, Texas, US"))
+  ;
+  ;(println "TEXAS HOSP: ", ((get-state-hospitalizations 14) "Texas"))
+  ;(println "ARIZONA HOSP: ", ((get-state-hospitalizations 14) "Arizona"))
+
   )
