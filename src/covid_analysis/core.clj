@@ -151,8 +151,8 @@
      :deaths deaths
      :tested tested
      :hospitalized hospitalized
-     :positive-test-rate (if (zero? tested) 0 (double (/ confirmed tested)))
-     :hospitalization-rate (if (zero? confirmed) 0 (double (/ hospitalized confirmed)))}))
+     :positive-test-rate (if (zero? tested) 0.0 (double (/ confirmed tested)))
+     :hospitalization-rate (if (zero? confirmed) 0.0 (double (/ hospitalized confirmed)))}))
 
 (defn get-daily-testing-statistics-by-state []
   (let [last-two-file-names (take-last 2 (get-us-report-filenames-in-chronological-order))
@@ -463,7 +463,7 @@
     (println county))
 
   (println "\nStates with most new deaths")
-  (let [top-new-deaths (take-last 10 (sort-by last (map #(vector (key %) (val %)) new-deaths-by-state)))]
+  (let [top-new-deaths (sort-by last (map #(vector (key %) (val %)) new-deaths-by-state))]
     (doseq [state-new-death top-new-deaths]
       (printf "%s %d\n" (first state-new-death) (second state-new-death))))
 
@@ -500,8 +500,13 @@
     (printf "%s %.2f (%d/%d)\n" state mortality deaths cases))
 
   (println "\nState Deaths per 100K")
-  (doseq [[state death-per-pop] (get-state-deaths-per-population)]
-    (printf "%s %.2f\n" state (* 100000.0 death-per-pop)))
+  (let [deaths-per-pop-by-state (get-state-deaths-per-population)
+        deaths-per-pop (map last deaths-per-pop-by-state)
+        deaths-per-100K (map #(* 100000.0 %) deaths-per-pop)]
+    (printf "mean %.5f\n" (mean deaths-per-100K))
+    (printf "sigma %.5f\n\n" (stddev deaths-per-100K))
+    (doseq [[state death-per-pop] deaths-per-pop-by-state]
+      (printf "%s %.2f\n" state (* 100000.0 death-per-pop))))
 
   (println "\nTest Positive Rate by State")
   (doseq [[state rate] (get-test-positive-rate-by-state)]
@@ -514,10 +519,10 @@
   (printf "mean: %.5f\n" (mean positive-rate))
   (printf "sigma: %.5f\n" (stddev positive-rate))
 
-  (println "\nTen states with highest daily test positive rates")
-  (let [test-positives (take-last 10 (sort-by :positive-test-rate (filter #(< (:positive-test-rate %) 1) daily-testing-stats)))]
+  (println "\nStates daily test positive rates")
+  (let [test-positives (sort-by :positive-test-rate (filter #(< (:positive-test-rate %) 1) daily-testing-stats))]
     (doseq [state test-positives]
-      (printf "%s %.2f\ttested: %d, pos %d, hosp: %d, hosp-rate %.4f.\n"
+      (printf "%s %.2f tested: %d, pos %d, hosp: %d, hosp-rate %.4f.\n"
               (:state state)
               (:positive-test-rate state)
               (:tested state)
@@ -530,10 +535,10 @@
   (printf "mean: %.5f\n" (mean hosp-rate))
   (printf "sigma: %.5f\n" (stddev hosp-rate))
 
-  (println "\nTen states with highest daily hospitalization rates")
-  (let [hospitalized (take-last 10 (sort-by :hospitalization-rate (filter #(< (:hospitalization-rate %) 1) daily-testing-stats)))]
+  (println "\nStates daily hospitalization rates")
+  (let [hospitalized (sort-by :hospitalization-rate (filter #(< (:hospitalization-rate %) 1) daily-testing-stats))]
     (doseq [state hospitalized]
-      (printf "%s %.2f\ttested: %d, pos: %d, hosp %d.\n"
+      (printf "%s %.2f tested: %d, pos: %d, hosp %d.\n"
               (:state state)
               (:hospitalization-rate state)
               (:tested state)
