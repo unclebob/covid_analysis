@@ -87,6 +87,11 @@
                (reduce + (map square (map - a (repeat (mean a)))))
                (- (count a) 1))))
 
+(defn daily-delta [row n]
+  (let [yesterday (take-last (inc n) row)
+        today (take-last n row)]
+    (map - today yesterday)))
+
 (defn get-rows [file]
   (with-open [reader (io/reader file)]
     (doall
@@ -207,6 +212,25 @@
 (def global-deaths-data (get-rows global-deaths-file))
 (def global-recovered-data (get-rows global-recovered-file))
 
+;relative trajectories are 14 day average change in growth over average growth.
+(defn get-global-relative-trajectories []
+  (loop [countries [] global-data (rest global-confirmed-data)]
+    (if (empty? global-data)
+      (sort-by last countries)
+      (let [row (first global-data)
+            province (first row)
+            country (second row)
+            country (if (= "" province) country (str province "/" country))
+            cases (to-ints (take-last 16 row))
+            new-cases (daily-delta cases 15)
+            mean-new-cases (double (mean new-cases))
+            growth (daily-delta new-cases 14)
+            trajectory (if (zero? mean-new-cases)
+                         0.0
+                         (double (/ (mean growth)
+                                    mean-new-cases)))]
+        (recur (conj countries [country mean-new-cases trajectory]) (rest global-data))))))
+
 (defn total-tests [daily-report-csv-filename]
   (let [rows (rest (get-rows daily-report-csv-filename))
         tests (map #(to-int (nth % 11)) rows)]
@@ -303,11 +327,6 @@
         (recur (assoc totals state (total-counties (state-map state)))
                (rest states))))))
 
-(defn daily-delta [row n]
-  (let [yesterday (take-last (inc n) row)
-        today (take-last n row)]
-    (map - today yesterday)))
-
 (defn todays-increase [row]
   (let [today (to-int (last row))
         yesterday (to-int (last (butlast row)))
@@ -367,8 +386,8 @@
         recovered (to-ints (get-last-cells (get-row global-recovered-data "US") days))]
     (map - confirmed deaths recovered)))
 
-(defn get-state-case-trajectories []
-  (let [state-map (gather-states (rest us-confirmed-data))
+(defn get-state-case-trajectories-from [confirmed-data]
+  (let [state-map (gather-states confirmed-data)
         state-totals (total-states state-map)
         states (keys state-totals)
         states (filter #(contains? state-population %) states)
@@ -389,6 +408,21 @@
                           :trajectory trajectory
                           :trajectory-per-100K trajectory-per-100K}))]
     (sort-by :trajectory trajectories)))
+
+(defn get-state-case-trajectories []
+  (get-state-case-trajectories-from (rest us-confirmed-data)))
+
+(defn get-trajectory-per-100K-history [n]
+  (let [confirmed (rest us-confirmed-data)]
+    (loop [n n trajs [] sigmas []]
+      (if (zero? n)
+        {:trajectories trajs :sigmas sigmas}
+        (let [old-confirmed (map #(drop-last n %) confirmed)
+              traj-history (get-state-case-trajectories-from old-confirmed)
+              traj-history (map :trajectory-per-100K traj-history)]
+          (recur (dec n)
+                 (conj trajs (mean traj-history))
+                 (conj sigmas (stddev traj-history))))))))
 
 (defn get-county-trajectories [us-confirmed]
   (let [state-map (gather-states us-confirmed)
@@ -482,6 +516,9 @@
   (printf "mean: %.5f\n" (mean t-100K))
   (printf "sigma: %.5f\n" (stddev t-100K))
 
+  ;(println "\ntrajectory/100K history")
+  ;(println (get-trajectory-per-100K-history 60))
+
   (println "\nState Trajectories/100K")
   (doseq [{:keys [state trajectory-per-100K]} (sort-by :trajectory-per-100K state-trajectories)]
     (printf "%s %.2f\n" state trajectory-per-100K))
@@ -544,6 +581,12 @@
               (:tested state)
               (:confirmed state)
               (:hospitalized state))))
+
+  (def country-trajectories (filter #(> (second %) 500) (get-global-relative-trajectories)))
+  (println "\nCountry relative 14 day trajectories")
+  (println "[country mean-new-cases mean-growth]")
+  (doseq [[country mean-new-cases trajectory] country-trajectories]
+    (printf "%s (%.1f) %.4f%%\n" country mean-new-cases (* 100 trajectory)))
 
 
   (println "\nInteresting Counties")
