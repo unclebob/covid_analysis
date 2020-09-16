@@ -337,7 +337,7 @@
   (let [rows (rest us-confirmed-data)
         counties (map #(vector (nth % 10) (todays-increase %) (todays-increase (butlast %))) rows)
         counties (sort-by second counties)
-        hot-counties (drop (- (count counties) 10) counties)]
+        hot-counties (take-last 50 counties)]
     hot-counties))
 
 (defn row-matches [name row]
@@ -353,7 +353,7 @@
   (let [last-element (to-int (last row))
         prev-element (to-int (last (butlast row)))
         diff (- last-element prev-element)
-        pct (double (/ diff prev-element))]
+        pct (if (zero? prev-element) 0 (double (/ diff prev-element)))]
     [last-element prev-element diff pct]))
 
 (defn round [x]
@@ -445,6 +445,25 @@
         trajectory (/ (reduce + daily-change) 14.0)]
     [county-name cases new-cases daily-change trajectory]))
 
+(defn row-growth [row]
+  (let [yesterday (drop-last row)
+        today (drop 1 row)
+        growth (map - today yesterday)]
+    growth))
+
+(defn model-recovery [confirmed]
+  (let [growth (row-growth confirmed)
+        recovered (reduce + (drop-last 14 growth))]
+    (- (last confirmed) recovered)))
+
+(defn active-cases-by-county []
+  (let [counties (drop 1 us-confirmed-data)]
+    (for [county counties]
+      (let [name (nth county 10)
+            row (to-ints (drop 11 county))
+            active-cases (model-recovery row)]
+        [name active-cases]))))
+
 (defn rank-counties [us-confirmed]
   (let [trajectories (get-county-trajectories us-confirmed)
         total-counties (count trajectories)
@@ -474,9 +493,6 @@
   (println "US-Deaths:     " (get-stats (get-row global-deaths-data "US")))
   (println "US-Recovered:  " (get-stats (get-row global-recovered-data "US")))
   (println "US-Tested      " (last (get-total-tests)))
-  (println "NYC Confirmed: " (get-stats (get-row us-confirmed-data "New York City, New York, US")))
-  (println "NYC Deaths:    " (get-stats (get-row us-deaths-data "New York City, New York, US")))
-  (println "Cook Confirmed:" (get-stats (get-row us-confirmed-data "Cook, Illinois, US")))
 
   (println "\ncounty distribution")
   (doseq [{:keys [down-counties up-counties nil-counties marginal-counties scary-counties moderate-counties]}
@@ -523,7 +539,7 @@
   (doseq [{:keys [state trajectory-per-100K]} (sort-by :trajectory-per-100K state-trajectories)]
     (printf "%s %.2f\n" state trajectory-per-100K))
 
-  (println "\nState Cases per 100K")
+  (println "\nState {new cases Cases/100K}")
   (doseq [{:keys [state new-cases cases-per-100K]} (sort-by :cases-per-100K state-trajectories)]
     (printf "%s {%d, %.2f}\n" state new-cases cases-per-100K))
 
@@ -557,7 +573,7 @@
   (printf "sigma: %.5f\n" (stddev positive-rate))
 
   (println "\nStates daily test positive rates")
-  (let [test-positives (sort-by :positive-test-rate (filter #(< (:positive-test-rate %) 1) daily-testing-stats))]
+  (let [test-positives (sort-by :positive-test-rate daily-testing-stats)]
     (doseq [state test-positives]
       (printf "%s %.2f tested: %d, pos %d, hosp: %d, hosp-rate %.4f.\n"
               (:state state)
@@ -588,19 +604,49 @@
   (doseq [[country mean-new-cases trajectory] country-trajectories]
     (printf "%s (%.1f) %.4f%%\n" country mean-new-cases (* 100 trajectory)))
 
+  (let [active-counties (sort-by last (active-cases-by-county))
+        active-cases (map second active-counties)
+        zero (count (filter #(<= % 0) active-cases))
+        marginal (- (count (filter #(<= % 20) active-cases)) zero)
+        moderate (- (count (filter #(<= % 1000) active-cases)) (+ zero marginal))
+        active-cases-map (into (hash-map) active-counties)]
+    (println "\nRecovery Model")
+    (printf "Inactive counties: %d\n" zero)
+    (printf "Marginal counties (<=200): %d\n" marginal)
+    (printf "Moderate counties (<=1000): %d\n" moderate)
+    (printf "Severe counties (>1000): %d\n" (- (count active-cases) zero marginal moderate))
 
-  (println "\nInteresting Counties")
-  (println (county-trajectory "Lake, Illinois, US"))
-  (println (county-trajectory "Cook, Illinois, US"))
-  (println (county-trajectory "Kenosha, Wisconsin, US"))
-  (println (county-trajectory "McHenry, Illinois, US"))
-  (println (county-trajectory "Juneau, Wisconsin, US"))
-  (println (county-trajectory "Sauk, Wisconsin, US"))
-  (println (county-trajectory "Columbia, Wisconsin, US"))
-  (println (county-trajectory "East Baton Rouge, Louisiana, US"))
-  (println (county-trajectory "West Baton Rouge, Louisiana, US"))
-  (println (county-trajectory "Maricopa, Arizona, US"))
-  (println (county-trajectory "Travis, Texas, US"))
+    (println "\nCounties with most active cases")
+    (doseq [[name cases] (take-last 10 active-counties)]
+      (printf "%s: %d\n" name cases))
+
+    (println "\nInteresting Counties")
+    (def county-list ["Lake, Illinois, US"
+                      "Cook, Illinois, US"
+                      "Kenosha, Wisconsin, US"
+                      "McHenry, Illinois, US"
+                      "Juneau, Wisconsin, US"
+                      "Sauk, Wisconsin, US"
+                      "Columbia, Wisconsin, US"
+                      "East Baton Rouge, Louisiana, US"
+                      "West Baton Rouge, Louisiana, US"
+                      "Maricopa, Arizona, US"
+                      "Travis, Texas, US"])
+
+    (doseq [county county-list]
+      (println (county-trajectory county) " active:" (active-cases-map county))))
+
+  ;(println (county-trajectory "Lake, Illinois, US"))
+  ;(println (county-trajectory "Cook, Illinois, US"))
+  ;(println (county-trajectory "Kenosha, Wisconsin, US"))
+  ;(println (county-trajectory "McHenry, Illinois, US"))
+  ;(println (county-trajectory "Juneau, Wisconsin, US"))
+  ;(println (county-trajectory "Sauk, Wisconsin, US"))
+  ;(println (county-trajectory "Columbia, Wisconsin, US"))
+  ;(println (county-trajectory "East Baton Rouge, Louisiana, US"))
+  ;(println (county-trajectory "West Baton Rouge, Louisiana, US"))
+  ;(println (county-trajectory "Maricopa, Arizona, US"))
+  ;(println (county-trajectory "Travis, Texas, US"))
   ;
   ;(println "TEXAS HOSP: ", ((get-state-hospitalizations 14) "Texas"))
   ;(println "ARIZONA HOSP: ", ((get-state-hospitalizations 14) "Arizona"))

@@ -8,6 +8,9 @@
 ;  (it "should should get last"
 ;    (should= "" (get-last global-confirmed "US"))))
 
+(describe "row-growth"
+    (it (should= [1 2 3] (row-growth [100 101 103 106]))))
+
 (describe "round"
   (it "should round up at .5"
     (should= 0 (round 0))
