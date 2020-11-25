@@ -583,22 +583,30 @@
               (:hospitalized state)
               (:hospitalization-rate state))))
 
-  (println "\nDaily Hospitalization Statistics")
-  (def hosp-rate (map :hospitalization-rate daily-testing-stats))
-  (printf "mean: %.5f\n" (mean hosp-rate))
-  (printf "sigma: %.5f\n" (stddev hosp-rate))
-
-  (println "\nStates daily hospitalization rates")
-  (let [hospitalized (sort-by :hospitalization-rate (filter #(< (:hospitalization-rate %) 1) daily-testing-stats))]
-    (doseq [state hospitalized]
-      (printf "%s %.2f tested: %d, pos: %d, hosp %d.\n"
+  (println "\nStates with most tests today")
+  (let [tested (take-last 10 (sort-by :tested daily-testing-stats))]
+    (doseq [state tested]
+      (printf "%s tested: %d, pos %d\n"
               (:state state)
-              (:hospitalization-rate state)
               (:tested state)
-              (:confirmed state)
-              (:hospitalized state))))
+              (:confirmed state))))
 
-  (def country-trajectories (filter #(> (second %) 500) (get-global-relative-trajectories)))
+  ;(println "\nDaily Hospitalization Statistics")
+  ;(def hosp-rate (map :hospitalization-rate daily-testing-stats))
+  ;(printf "mean: %.5f\n" (mean hosp-rate))
+  ;(printf "sigma: %.5f\n" (stddev hosp-rate))
+  ;
+  ;(println "\nStates daily hospitalization rates")
+  ;(let [hospitalized (sort-by :hospitalization-rate (filter #(< (:hospitalization-rate %) 1) daily-testing-stats))]
+  ;  (doseq [state hospitalized]
+  ;    (printf "%s %.2f tested: %d, pos: %d, hosp %d.\n"
+  ;            (:state state)
+  ;            (:hospitalization-rate state)
+  ;            (:tested state)
+  ;            (:confirmed state)
+  ;            (:hospitalized state))))
+
+  (def country-trajectories (filter #(> (second %) 5000) (get-global-relative-trajectories)))
   (println "\nCountry relative 14 day trajectories")
   (println "[country mean-new-cases mean-growth]")
   (doseq [[country mean-new-cases trajectory] country-trajectories]
@@ -631,23 +639,12 @@
                       "East Baton Rouge, Louisiana, US"
                       "West Baton Rouge, Louisiana, US"
                       "Maricopa, Arizona, US"
-                      "Travis, Texas, US"])
+                      "Travis, Texas, US"
+                      ])
 
     (doseq [county county-list]
       (println (county-trajectory county) " active:" (active-cases-map county))))
 
-  ;(println (county-trajectory "Lake, Illinois, US"))
-  ;(println (county-trajectory "Cook, Illinois, US"))
-  ;(println (county-trajectory "Kenosha, Wisconsin, US"))
-  ;(println (county-trajectory "McHenry, Illinois, US"))
-  ;(println (county-trajectory "Juneau, Wisconsin, US"))
-  ;(println (county-trajectory "Sauk, Wisconsin, US"))
-  ;(println (county-trajectory "Columbia, Wisconsin, US"))
-  ;(println (county-trajectory "East Baton Rouge, Louisiana, US"))
-  ;(println (county-trajectory "West Baton Rouge, Louisiana, US"))
-  ;(println (county-trajectory "Maricopa, Arizona, US"))
-  ;(println (county-trajectory "Travis, Texas, US"))
-  ;
   ;(println "TEXAS HOSP: ", ((get-state-hospitalizations 14) "Texas"))
   ;(println "ARIZONA HOSP: ", ((get-state-hospitalizations 14) "Arizona"))
 
