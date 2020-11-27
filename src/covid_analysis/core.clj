@@ -519,6 +519,19 @@
 
   (def state-trajectories (get-state-case-trajectories))
 
+  (println "\nStates not reporting")
+  (let [non-reporters (filter #(zero? (:new-cases %)) state-trajectories)]
+    (doseq [non-reporter non-reporters]
+      (println (:state non-reporter))))
+
+  (println "\nBacklog dumps [state new-cases last-delta]")
+  (let [states (for [{:keys [state new-cases changes-per-day]} state-trajectories]
+                 (let [last-delta (last changes-per-day)]
+                   [state new-cases last-delta]))]
+    (doseq [[_ new-cases delta :as state] states]
+      (when (> (* 2 delta) new-cases)
+        (println state))))
+
   (println "\nState Case Trajectories")
   (doseq [{:keys [state new-cases cases-per-100K changes-per-day trajectory]} state-trajectories]
     (println state (format "{%d, %.2f}" new-cases cases-per-100K) changes-per-day (format "<%.2f>" trajectory)))
