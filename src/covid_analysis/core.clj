@@ -527,10 +527,16 @@
   (println "\nBacklog dumps [state new-cases last-delta]")
   (let [states (for [{:keys [state new-cases changes-per-day]} state-trajectories]
                  (let [last-delta (last changes-per-day)]
-                   [state new-cases last-delta]))]
-    (doseq [[_ new-cases delta :as state] states]
-      (when (> (* 2 delta) new-cases)
-        (println state))))
+                   [state new-cases last-delta]))
+        backlog-states (for [[_ new-cases delta :as state] states
+                             :when (> (* 2 delta) new-cases)]
+                         state)
+        backlogs (map #(nth % 2) backlog-states)
+        backlog-sum (reduce + backlogs)]
+    (doseq [state backlog-states]
+      (println state))
+    (println "Total Backlog: " backlog-sum)
+    )
 
   (println "\nState Case Trajectories")
   (doseq [{:keys [state new-cases cases-per-100K changes-per-day trajectory]} state-trajectories]
