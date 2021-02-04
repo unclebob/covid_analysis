@@ -505,9 +505,6 @@
              ", >10:" scary-counties)
     )
 
-  (println "\nCurrent Confirmed US")
-  (print-graph (get-current-confirmed-us 14))
-
   (println "\nHot counties")
   (doseq [county (get-hot-counties)]
     (println county))
@@ -551,9 +548,6 @@
   (printf "mean: %.5f\n" (mean t-100K))
   (printf "sigma: %.5f\n" (stddev t-100K))
 
-  ;(println "\ntrajectory/100K history")
-  ;(println (get-trajectory-per-100K-history 60))
-
   (println "\nState Trajectories/100K")
   (doseq [{:keys [state trajectory-per-100K]} (sort-by :trajectory-per-100K state-trajectories)]
     (printf "%s %.2f\n" state trajectory-per-100K))
@@ -561,11 +555,6 @@
   (println "\nState {new cases Cases/100K}")
   (doseq [{:keys [state new-cases cases-per-100K]} (sort-by :cases-per-100K state-trajectories)]
     (printf "%s {%d, %.2f}\n" state new-cases cases-per-100K))
-
-
-  ;(println "\nCounty Mortality Rates")
-  ;(doseq [county-rate (get-county-mortality-rates)]
-  ;  (printf "%s %.2f (%d/%d)\n" (first county-rate) (last county-rate) (second county-rate) (nth county-rate 2)))
 
   (println "\nState Case Mortality Rates")
   (doseq [[state deaths cases mortality] (get-state-mortality-rates)]
@@ -610,21 +599,6 @@
               (:tested state)
               (:confirmed state))))
 
-  ;(println "\nDaily Hospitalization Statistics")
-  ;(def hosp-rate (map :hospitalization-rate daily-testing-stats))
-  ;(printf "mean: %.5f\n" (mean hosp-rate))
-  ;(printf "sigma: %.5f\n" (stddev hosp-rate))
-  ;
-  ;(println "\nStates daily hospitalization rates")
-  ;(let [hospitalized (sort-by :hospitalization-rate (filter #(< (:hospitalization-rate %) 1) daily-testing-stats))]
-  ;  (doseq [state hospitalized]
-  ;    (printf "%s %.2f tested: %d, pos: %d, hosp %d.\n"
-  ;            (:state state)
-  ;            (:hospitalization-rate state)
-  ;            (:tested state)
-  ;            (:confirmed state)
-  ;            (:hospitalized state))))
-
   (def country-trajectories (filter #(> (second %) 5000) (get-global-relative-trajectories)))
   (println "\nCountry relative 14 day trajectories")
   (println "[country mean-new-cases mean-growth]")
@@ -663,8 +637,4 @@
 
     (doseq [county county-list]
       (println (county-trajectory county) " active:" (active-cases-map county))))
-
-  ;(println "TEXAS HOSP: ", ((get-state-hospitalizations 14) "Texas"))
-  ;(println "ARIZONA HOSP: ", ((get-state-hospitalizations 14) "Arizona"))
-
   )

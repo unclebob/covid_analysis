@@ -13,3 +13,5 @@ pom.xml
 README.md
 analysis.numbers
 *.iml
+.nrepl*
+
